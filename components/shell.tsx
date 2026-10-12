@@ -27,7 +27,7 @@ export function Shell({
       </a>
       <aside className="sidebar">
         <Link href="/" className="logo" aria-label="RIVAL home">
-          R<span>◆</span>VAL<span className="brand-dot">®</span>
+          R<span>◆</span>VAL
         </Link>
         <p className="brand-tag">Your habits. Your rivalry.</p>
         <div className="nav-caption">YOUR CARTRIDGE</div>
