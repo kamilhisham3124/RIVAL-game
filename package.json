@@ -1,0 +1,8 @@
+{
+  "name": "rival-game", "version": "0.1.0", "private": true,
+  "packageManager": "pnpm@11.25.0",
+  "engines": {"node": ">=20.9.0"},
+  "scripts": {"dev":"next dev", "build":"next build", "start":"next start", "typecheck":"tsc --noEmit", "test":"vitest run", "test:watch":"vitest", "test:e2e":"playwright test", "check":"pnpm typecheck && pnpm test && pnpm build"},
+  "dependencies": {"next":"15.5.27", "react":"^19.1.0", "react-dom":"^19.1.0", "zustand":"^5.0.0", "@tanstack/react-query":"^5.90.0", "@supabase/ssr":"^0.8.0", "@supabase/supabase-js":"^2.90.0", "date-fns":"^4.1.0", "date-fns-tz":"^3.2.0", "@serwist/next":"^9.5.0", "serwist":"^9.5.0", "@fontsource/press-start-2p":"^5.2.0", "@fontsource/vt323":"^5.2.0"},
+  "devDependencies": {"typescript":"^5.9.0", "@types/node":"^22.0.0", "@types/react":"^19.0.0", "@types/react-dom":"^19.0.0", "tailwindcss":"^4.1.0", "@tailwindcss/postcss":"^4.1.0", "vitest":"^3.2.0", "@playwright/test":"^1.58.0", "@axe-core/playwright":"^4.11.0"}
+}
