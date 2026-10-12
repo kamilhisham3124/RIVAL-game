@@ -1,0 +1,13 @@
+node_modules/
+.next/
+.cache/
+.pnpm-store/
+.env*
+!.env.example
+coverage/
+playwright-report/
+test-results/
+next-env.d.ts
+*.tsbuildinfo
+public/sw.js
+public/sw.js.map

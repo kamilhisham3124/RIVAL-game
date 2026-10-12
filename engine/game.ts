@@ -1,0 +1,183 @@
+import {
+  activeDayKey,
+  computeForfeit,
+  earnedXP,
+  inGraceWindow,
+  localDayKey,
+  plannedXP,
+  ratchet,
+  scheduled,
+  settle,
+  shiftDay,
+} from './day';
+import { rivalTarget } from './rival';
+import type { DayConfig, DayKey, DayRecord, Game, Task } from './types';
+export function newGame(now: Date, tz: string, id: string): Game {
+  return {
+    version: 1,
+    playerId: id,
+    playerName: 'You',
+    timezone: tz,
+    firstDay: localDayKey(tz, now),
+    onboarding: false,
+    tasks: [],
+    days: {},
+    records: [],
+    rival: { name: 'Blaze', sprite: 'blaze', palette: 'ember', archetype: 'blue', k: 0.75 },
+    theme: 'system',
+    legibility: false,
+    sound: false,
+  };
+}
+function makeDay(g: Game, key: DayKey): DayConfig {
+  const tasks = g.tasks.filter((t) => scheduled(t, key)).map((t) => ({ ...t }));
+  const pending = g.rival.pending;
+  const rules = pending && key >= pending.day ? pending : g.rival;
+  return {
+    key,
+    timezone: g.timezone,
+    k: key === g.firstDay ? 0.5 : rules.k,
+    peakXP: plannedXP(tasks),
+    isRest: false,
+    hadCompletion: false,
+    tasks,
+    logs: [],
+    focus: {},
+    archetype: rules.archetype,
+  };
+}
+export function currentDay(g: Game, now: Date): DayKey {
+  const today = localDayKey(g.timezone, now),
+    yesterday = shiftDay(today, -1);
+  return activeDayKey(
+    g.timezone,
+    now,
+    !!g.days[yesterday] &&
+      (g.days[yesterday].peakXP > 0 || g.days[yesterday].isRest) &&
+      !g.records.some((r) => r.day === yesterday),
+  );
+}
+/** Advances calendar snapshots BEFORE edits, settles oldest first, and preserves immutable records. */
+export function advance(game: Game, now: Date): Game {
+  const g = structuredClone(game);
+  if (!g.onboarding) return g;
+  const today = localDayKey(g.timezone, now);
+  const start = Object.keys(g.days).sort().at(-1) ?? g.firstDay;
+  for (let key = start; key <= today; key = shiftDay(key, 1)) {
+    g.days[key] ??= makeDay(g, key);
+  }
+  for (const day of Object.values(g.days).sort((a, b) => a.key.localeCompare(b.key))) {
+    if (day.key >= today || g.records.some((r) => r.day === day.key)) continue;
+    if (day.key === shiftDay(today, -1) && inGraceWindow(now, g.timezone)) continue;
+    if (day.peakXP === 0 && !day.isRest) continue;
+    const target = rivalTarget(day.peakXP, day.k);
+    const userXP = day.isRest ? 0 : earnedXP(day.logs);
+    const r: DayRecord = {
+      day: day.key,
+      timezone: day.timezone,
+      playerId: g.playerId,
+      userXP,
+      rivalXP: day.isRest ? 0 : target,
+      target: day.isRest ? 0 : target,
+      result: day.isRest ? 'rest' : settle(userXP, target),
+      forfeit: !day.isRest && day.peakXP > 0 && day.logs.length === 0,
+      plannedXP: day.peakXP,
+      logs: day.logs,
+      seen: false,
+      archetype: day.archetype,
+    };
+    g.records.push(r);
+  }
+  if (g.rival.pending && g.rival.pending.day <= today) {
+    g.rival.k = g.rival.pending.k;
+    g.rival.archetype = g.rival.pending.archetype;
+    delete g.rival.pending;
+  }
+  return g;
+}
+export function finishOnboarding(game: Game, tasks: Task[], now: Date): Game {
+  const g = structuredClone(game);
+  g.onboarding = true;
+  g.firstDay = localDayKey(g.timezone, now);
+  g.tasks = tasks;
+  g.days[g.firstDay] = makeDay(g, g.firstDay);
+  return g;
+}
+export function editTasks(game: Game, tasks: Task[], now: Date): Game {
+  const g = advance(game, now);
+  const today = localDayKey(g.timezone, now);
+  g.tasks = tasks;
+  const day = g.days[today] ?? makeDay(g, today);
+  if (day.isRest) return g;
+  day.tasks = tasks.filter((t) => scheduled(t, today)).map((t) => ({ ...t }));
+  day.peakXP = ratchet(day.peakXP, day.tasks);
+  g.days[today] = day;
+  return g;
+}
+export function toggleTask(game: Game, id: string, now: Date): Game {
+  const g = advance(game, now),
+    key = currentDay(g, now),
+    day = g.days[key];
+  if (!day || day.isRest || g.records.some((r) => r.day === key)) return g;
+  const task = day.tasks.find((t) => t.id === id);
+  if (!task) return g;
+  const existing = day.logs.find((l) => l.taskId === id);
+  if (existing) {
+    day.logs = day.logs.filter((l) => l.taskId !== id);
+    return g;
+  }
+  if (task.focusMinutes && !timerReady(day, id, now.getTime())) return g;
+  day.hadCompletion = true;
+  day.logs.push({ taskId: id, title: task.title, xp: task.xp, completedAt: now.toISOString() });
+  return g;
+}
+export function canRest(g: Game, key: DayKey): boolean {
+  const d = g.days[key];
+  return (
+    !!d &&
+    d.tasks.length > 0 &&
+    !d.isRest &&
+    !d.hadCompletion &&
+    d.logs.length === 0 &&
+    !g.records.some((r) => r.day === key) &&
+    !Object.values(g.days).some((r) => r.isRest && r.key >= shiftDay(key, -6) && r.key <= key)
+  );
+}
+export function restDay(game: Game, now: Date): Game {
+  const g = advance(game, now),
+    key = currentDay(g, now);
+  if (key !== localDayKey(g.timezone, now) || !canRest(g, key)) return g;
+  g.days[key].isRest = true;
+  return g;
+}
+export function timerRemaining(day: DayConfig, id: string, now: number): number {
+  const f = day.focus[id];
+  if (!f) return (day.tasks.find((t) => t.id === id)?.focusMinutes ?? 0) * 60;
+  return Math.max(
+    0,
+    f.remaining - (f.startedAt === null ? 0 : Math.floor((now - f.startedAt) / 1000)),
+  );
+}
+export function timerReady(day: DayConfig, id: string, now: number): boolean {
+  return !!day.focus[id] && timerRemaining(day, id, now) === 0;
+}
+export function toggleTimer(game: Game, id: string, now: Date): Game {
+  const g = advance(game, now),
+    key = currentDay(g, now),
+    day = g.days[key];
+  if (!day || day.isRest || g.records.some((r) => r.day === key)) return g;
+  const remaining = timerRemaining(day, id, now.getTime()),
+    old = day.focus[id];
+  day.focus[id] = {
+    remaining,
+    startedAt: old?.startedAt != null ? null : now.getTime(),
+    ready: remaining === 0,
+  };
+  return g;
+}
+export function abandonTimer(game: Game, id: string, now: Date): Game {
+  const g = advance(game, now),
+    d = g.days[currentDay(g, now)];
+  if (d) delete d.focus[id];
+  return g;
+}
