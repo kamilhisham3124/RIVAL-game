@@ -1,0 +1,11 @@
+node_modules
+.next
+.cache
+.pnpm-store
+pnpm-lock.yaml
+public/sw.js
+public/sw.js.map
+docs/PRD.md
+docs/TRD.md
+docs/DESIGN.md
+docs/APP-FLOW.md
